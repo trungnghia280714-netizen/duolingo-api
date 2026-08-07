@@ -1,138 +1,111 @@
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
-const jwt = require('jsonwebtoken');
+const fetch = require('node-fetch');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-const OWNER_UID = '810204458';
-const OWNER_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjYzMDcyMDAwMDAsImlhdCI6MCwic3ViIjo4MTAyMDQ0NTh9.qoPkyOMoXDvxgoU0O2WB9LQYa5iCp3WyU9_7pAy4Dgw';
+const OWNER_JWT = process.env.OWNER_JWT || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjYzMDcyMDAwMDAsImlhdCI6MCwic3ViIjo4MTAyMDQ0NTh9.qoPkyOMoXDvxgoU0O2WB9LQYa5iCp3WyU9_7pAy4Dgw';
+
+const HEADERS = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + OWNER_JWT,
+    'Accept': 'application/json',
+    'Origin': 'https://www.duolingo.com',
+    'Referer': 'https://www.duolingo.com/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+};
 
 // Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Duolingo API Server' });
+app.get('/', function(req, res) {
+    res.json({ status: 'OK', service: 'Duolingo Super API', version: '1.0' });
 });
 
-// Create super link
-app.post('/api/create-super-link', async (req, res) => {
-  try {
-    const { uid, token } = req.body;
-    
-    if (!uid || !token) {
-      return res.status(400).json({ error: 'Missing uid or token' });
-    }
+// Create Super Link
+app.post('/api/create-super-link', async function(req, res) {
+    try {
+        var uid = req.body.uid;
+        var token = req.body.token;
 
-    // Use owner token if no token provided
-    const authToken = token || OWNER_JWT;
-    
-    // Call Duolingo API to create super intent
-    const response = await axios.post(
-      `https://www.duolingo.com/2017-06-30/users/${uid}/super-intents`,
-      {
-        source: 'profile',
-        medium: 'web'
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Origin': 'https://www.duolingo.com',
-          'Referer': 'https://www.duolingo.com/'
+        if (!uid || !token) {
+            return res.status(400).json({ error: 'Missing uid or token' });
         }
-      }
-    );
 
-    if (response.data && response.data.code) {
-      const link = `https://www.duolingo.com/super-intent/${response.data.code}`;
-      return res.json({ 
-        success: true, 
-        link: link,
-        code: response.data.code 
-      });
-    } else if (response.data && response.data.intents && response.data.intents.length > 0) {
-      const code = response.data.intents[0].code;
-      const link = `https://www.duolingo.com/super-intent/${code}`;
-      return res.json({ 
-        success: true, 
-        link: link,
-        code: code 
-      });
-    } else {
-      return res.status(500).json({ error: 'No code returned from Duolingo' });
-    }
-  } catch (error) {
-    console.error('Error creating super link:', error.response?.data || error.message);
-    
-    if (error.response?.status === 409) {
-      return res.status(409).json({ error: 'User already has Super' });
-    }
-    
-    return res.status(500).json({ 
-      error: 'Failed to create super link',
-      details: error.response?.data || error.message 
-    });
-  }
-});
-
-// Get user info
-app.get('/api/user/:uid', async (req, res) => {
-  try {
-    const { uid } = req.params;
-    const token = req.headers.authorization?.replace('Bearer ', '') || OWNER_JWT;
-    
-    const response = await axios.get(
-      `https://www.duolingo.com/2017-06-30/users/${uid}?fields=id,username,totalXp,gems,streak`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Origin': 'https://www.duolingo.com',
-          'Referer': 'https://www.duolingo.com/'
+        // Verify user
+        var userRes = await fetch('https://www.duolingo.com/2017-06-30/users/' + uid + '?fields=id,username', {
+            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+        });
+        if (!userRes.ok) {
+            return res.status(401).json({ error: 'Invalid user token' });
         }
-      }
-    );
-    
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get user info' });
-  }
-});
+        var userData = await userRes.json();
+        console.log('User:', userData.username, 'UID:', uid);
 
-// Claim badge
-app.post('/api/claim-badge', async (req, res) => {
-  try {
-    const { uid, token } = req.body;
-    const authToken = token || OWNER_JWT;
-    
-    const response = await axios.post(
-      `https://www.duolingo.com/2017-06-30/users/${uid}/badges`,
-      {
-        type: 'monthly_xp_challenge',
-        fromLanguage: 'en',
-        learningLanguage: 'es'
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Origin': 'https://www.duolingo.com',
-          'Referer': 'https://www.duolingo.com/'
+        // Try multiple Duolingo API endpoints
+        var endpoints = [
+            { url: 'https://www.duolingo.com/2017-06-30/family-plan/invites', body: { role: 'MEMBER' } },
+            { url: 'https://www.duolingo.com/2017-06-30/family-plan/invite-link', body: {} },
+            { url: 'https://www.duolingo.com/2023-05-23/family-plan/invites', body: { role: 'MEMBER' } },
+            { url: 'https://www.duolingo.com/2017-06-30/family-plan/members/invites', body: { role: 'MEMBER' } }
+        ];
+
+        var lastErr = null;
+
+        for (var i = 0; i < endpoints.length; i++) {
+            var ep = endpoints[i];
+            console.log('Trying:', ep.url);
+            try {
+                var inviteRes = await fetch(ep.url, {
+                    method: 'POST',
+                    headers: HEADERS,
+                    body: JSON.stringify(ep.body)
+                });
+
+                var rawText = await inviteRes.text();
+                console.log('Status:', inviteRes.status, 'Body:', rawText.substring(0, 500));
+
+                if (inviteRes.ok) {
+                    var data = {};
+                    try { data = JSON.parse(rawText); } catch(e) {}
+
+                    // Try to extract invite link/token
+                    var inviteToken = data.inviteToken || data.token || data.invite_token || data.code;
+                    var inviteLink = data.inviteLink || data.link || data.invite_link || data.url;
+
+                    if (inviteLink) {
+                        return res.json({ link: inviteLink, user: userData.username });
+                    } else if (inviteToken) {
+                        return res.json({ 
+                            link: 'https://www.duolingo.com/family-plan/invite/' + inviteToken,
+                            user: userData.username 
+                        });
+                    } else {
+                        // Return raw data for debugging
+                        return res.json({ raw: data, user: userData.username, endpoint: ep.url });
+                    }
+                }
+
+                lastErr = { status: inviteRes.status, body: rawText.substring(0, 300), endpoint: ep.url };
+            } catch (e) {
+                lastErr = { error: e.message, endpoint: ep.url };
+            }
         }
-      }
-    );
-    
-    res.json({ success: true, data: response.data });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to claim badge' });
-  }
+
+        return res.status(500).json({ 
+            error: 'All endpoints failed',
+            lastError: lastErr,
+            hint: 'Check if OWNER_JWT is valid. Login as family plan owner and copy jwt_token from cookies.'
+        });
+
+    } catch (error) {
+        console.error('Error:', error.message);
+        return res.status(500).json({ error: error.message });
+    }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+    console.log('API running on port ' + PORT);
+    console.log('JWT starts with:', OWNER_JWT.substring(0, 20) + '...');
 });
