@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: duolingo-super-api
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: OWNER_JWT
+        sync: false
+      - key: NODE_VERSION
+        value: 18.17.0
+    healthCheckPath: /
