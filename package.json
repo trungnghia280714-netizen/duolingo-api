@@ -1,7 +1,7 @@
 {
-  "name": "duolingo-api",
+  "name": "duolingo-super-api",
   "version": "1.0.0",
-  "description": "Duolingo API Server for creating super links",
+  "description": "Duolingo Super Link API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,7 +9,9 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "axios": "^1.6.0",
-    "jsonwebtoken": "^9.0.2"
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
